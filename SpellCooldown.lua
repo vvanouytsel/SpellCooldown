@@ -14,6 +14,7 @@ local defaultSettings = {
     borderColorR = 0,
     borderColorG = 0,
     borderColorB = 0,
+    showDecimals = false,
 }
 
 -- Initialize saved variables
@@ -93,14 +94,24 @@ UpdateCachedColors()
 
 -- Format cooldown time
 local function FormatCooldownTime(seconds)
+    local showDecimals = GetSetting("showDecimals")
+    
     if seconds >= 60 then
         return string.format("%.1fm", seconds / 60)
     elseif seconds >= 10 then
         return string.format("%.0f", seconds)
     elseif seconds >= 1 then
-        return string.format("%.1f", seconds)
+        if showDecimals then
+            return string.format("%.1f", seconds)
+        else
+            return string.format("%.0f", seconds)
+        end
     else
-        return string.format("%.1f", seconds)
+        if showDecimals then
+            return string.format("%.1f", seconds)
+        else
+            return string.format("%.0f", seconds)
+        end
     end
 end
 
@@ -251,7 +262,7 @@ previewIcon:SetTexture(136235) -- Fireball icon
 local previewText = previewFrame:CreateFontString(nil, "OVERLAY")
 previewText:SetFont("Fonts\\FRIZQT__.TTF", GetSetting("fontSize"), "OUTLINE")
 previewText:SetPoint("CENTER", previewFrame, "CENTER", 0, 0)
-previewText:SetText("8.5")
+previewText:SetText(GetSetting("showDecimals") and "8.5" or "8")
 previewText:SetTextColor(GetSetting("textColorR"), GetSetting("textColorG"), GetSetting("textColorB"))
 
 local function UpdatePreviewBorder()
@@ -501,9 +512,27 @@ borderSizeSlider:SetScript("OnValueChanged", function(self, value)
     UpdatePreviewBorder()
 end)
 
+-- Show decimals checkbox
+local decimalsCheckbox = CreateFrame("CheckButton", "SpellCooldownDecimalsCheckbox", scrollChild, "UICheckButtonTemplate")
+decimalsCheckbox:SetPoint("TOPLEFT", borderSizeSlider, "BOTTOMLEFT", 0, -30)
+decimalsCheckbox:SetChecked(GetSetting("showDecimals"))
+_G[decimalsCheckbox:GetName().."Text"]:SetText("Show Decimal Seconds")
+decimalsCheckbox:SetScript("OnClick", function(self)
+    SetSetting("showDecimals", self:GetChecked())
+    if self:GetChecked() then
+        previewText:SetText("8.5")
+    else
+        previewText:SetText("8")
+    end
+end)
+
+local decimalsDesc = scrollChild:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+decimalsDesc:SetPoint("TOPLEFT", decimalsCheckbox, "BOTTOMLEFT", 20, -5)
+decimalsDesc:SetText("Show decimals for seconds (e.g., 1.4) or whole numbers (e.g., 1).")
+
 -- Debug mode checkbox
 local debugCheckbox = CreateFrame("CheckButton", "SpellCooldownDebugCheckbox", scrollChild, "UICheckButtonTemplate")
-debugCheckbox:SetPoint("TOPLEFT", borderSizeSlider, "BOTTOMLEFT", 0, -30)
+debugCheckbox:SetPoint("TOPLEFT", decimalsDesc, "BOTTOMLEFT", -20, -10)
 debugCheckbox:SetChecked(debugMode)
 _G[debugCheckbox:GetName().."Text"]:SetText("Debug Mode")
 debugCheckbox:SetScript("OnClick", function(self)
