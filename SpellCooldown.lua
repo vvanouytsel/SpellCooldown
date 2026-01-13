@@ -79,6 +79,17 @@ local cooldownEndTime = 0
 local hideTime = 0
 local debugMode = false
 local isLocked = true
+local cachedTextColorR, cachedTextColorG, cachedTextColorB
+
+-- Cache text colors to avoid GetSetting calls in OnUpdate
+local function UpdateCachedColors()
+    cachedTextColorR = GetSetting("textColorR")
+    cachedTextColorG = GetSetting("textColorG")
+    cachedTextColorB = GetSetting("textColorB")
+    cooldownText:SetTextColor(cachedTextColorR, cachedTextColorG, cachedTextColorB)
+end
+
+UpdateCachedColors()
 
 -- Format cooldown time
 local function FormatCooldownTime(seconds)
@@ -117,7 +128,6 @@ local function UpdateCooldown()
         return
     end
     
-    cooldownText:SetTextColor(GetSetting("textColorR"), GetSetting("textColorG"), GetSetting("textColorB"))
     cooldownText:SetText(FormatCooldownTime(remaining))
 end
 
@@ -389,16 +399,18 @@ colorButton:SetScript("OnClick", function()
             local newR, newG, newB = ColorPickerFrame:GetColorRGB()
             SetSetting("textColorR", newR)
             SetSetting("textColorG", newG)
-            previewText:SetTextColor(newR, newG, newB)
             SetSetting("textColorB", newB)
+            UpdateCachedColors()
+            previewText:SetTextColor(newR, newG, newB)
             colorTexture:SetColorTexture(newR, newG, newB)
             colorInner:SetColorTexture(newR, newG, newB)
         end,
         cancelFunc = function()
             SetSetting("textColorR", r)
-            previewText:SetTextColor(r, g, b)
             SetSetting("textColorG", g)
             SetSetting("textColorB", b)
+            UpdateCachedColors()
+            previewText:SetTextColor(r, g, b)
             colorTexture:SetColorTexture(r, g, b)
             colorInner:SetColorTexture(r, g, b)
         end,
@@ -540,7 +552,7 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
         -- Restore size and font
         cooldownFrame:SetSize(GetSetting("width"), GetSetting("height"))
         cooldownText:SetFont("Fonts\\FRIZQT__.TTF", GetSetting("fontSize"), "OUTLINE")
-        cooldownText:SetTextColor(GetSetting("textColorR"), GetSetting("textColorG"), GetSetting("textColorB"))
+        UpdateCachedColors()
         UpdateBorder()
         
         print("|cFF00FF00SpellCooldown|r addon loaded! Configure in Game Menu > Options > AddOns > SpellCooldown")
@@ -548,7 +560,7 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
         -- Restore size and font on zone change
         cooldownFrame:SetSize(GetSetting("width"), GetSetting("height"))
         cooldownText:SetFont("Fonts\\FRIZQT__.TTF", GetSetting("fontSize"), "OUTLINE")
-        cooldownText:SetTextColor(GetSetting("textColorR"), GetSetting("textColorG"), GetSetting("textColorB"))
+        UpdateCachedColors()
         UpdateBorder()
     end
 end)
