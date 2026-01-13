@@ -1,0 +1,9 @@
+## Interface: 110100
+## Title: SpellCooldown
+## Notes: Displays spell icons with cooldown timers when spells are pressed while on cooldown
+## Author: YourName
+## Version: 1.0.0
+## SavedVariables: SpellCooldownDB
+## IconTexture: Interface\Icons\Spell_Holy_BorrowedTime
+
+SpellCooldown.lua
