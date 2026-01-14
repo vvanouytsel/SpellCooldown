@@ -1,0 +1,58 @@
+name: Release to CurseForge
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      
+      - name: Get version from tag
+        id: get_version
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            VERSION=${GITHUB_REF#refs/tags/}
+          else
+            VERSION=${{ inputs.tag }}
+          fi
+          echo "version=${VERSION#v}" >> $GITHUB_OUTPUT
+          echo "Releasing version: ${VERSION#v}"
+      
+      - name: Update TOC version
+        run: |
+          VERSION=${{ steps.get_version.outputs.version }}
+          sed -i "s/^## Version:.*/## Version: ${VERSION}/" SpellCooldown.toc
+          cat SpellCooldown.toc
+      
+      - name: Create addon package
+        run: |
+          mkdir -p release/SpellCooldown
+          cp -r SpellCooldown.lua SpellCooldown.toc LICENSE README.md release/SpellCooldown/
+          cd release
+          zip -r SpellCooldown-${{ steps.get_version.outputs.version }}.zip SpellCooldown/
+          cd ..
+          ls -lh release/
+      
+      - name: Upload to CurseForge
+        uses: itsmeow/curseforge-upload@v3
+        with:
+          token: ${{ secrets.CURSEFORGE_API_KEY }}
+          project_id: ${{ secrets.CURSEFORGE_PROJECT_ID }}
+          game_endpoint: wow
+          file_path: release/SpellCooldown-${{ steps.get_version.outputs.version }}.zip
+          changelog: ${{ github.event.release.body || 'New release' }}
+          changelog_type: markdown
+          release_type: release
+      
+      - name: Upload release artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SpellCooldown-${{ steps.get_version.outputs.version }}
+          path: release/SpellCooldown-${{ steps.get_version.outputs.version }}.zip
