@@ -3,6 +3,11 @@ name: Release to CurseForge
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to release (without v prefix)'
+        required: false
 
 jobs:
   release:
