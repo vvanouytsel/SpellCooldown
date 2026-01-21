@@ -1,8 +1,8 @@
-## Interface: 110100
+## Interface: 110207, 120000, 120001
 ## Title: SpellCooldown
 ## Notes: Displays spell icons with cooldown timers when spells are pressed while on cooldown
-## Author: YourName
-## Version: 1.0.0
+## Author: Vincent Van Ouytsel
+## Version: 1.0.1
 ## SavedVariables: SpellCooldownDB
 ## IconTexture: Interface\Icons\Spell_Holy_BorrowedTime
 
