@@ -2,7 +2,7 @@
 ## Title: SpellCooldown
 ## Notes: Displays spell icons with cooldown timers when spells are pressed while on cooldown
 ## Author: Vincent Van Ouytsel
-## Version: 1.0.1
+## Version: 1.1.0
 ## SavedVariables: SpellCooldownDB
 ## IconTexture: Interface\Icons\Spell_Holy_BorrowedTime
 
