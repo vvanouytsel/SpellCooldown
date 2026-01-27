@@ -80,6 +80,7 @@ local cooldownEndTime = 0
 local hideTime = 0
 local debugMode = false
 local isLocked = true
+local inCombat = false  -- Track combat state
 local cachedTextColorR, cachedTextColorG, cachedTextColorB
 
 -- Cache text colors to avoid GetSetting calls in OnUpdate
@@ -143,11 +144,13 @@ local function UpdateCooldown()
 end
 
 -- OnUpdate handler
-cooldownFrame:SetScript("OnUpdate", function(self, elapsed)
+local function OnUpdateHandler(self, elapsed)
     if activeSpellID then
         UpdateCooldown()
     end
-end)
+end
+
+cooldownFrame:SetScript("OnUpdate", OnUpdateHandler)
 
 -- Check if spell is on cooldown and display it
 local function CheckAndDisplayCooldown(spellID)
@@ -156,15 +159,20 @@ local function CheckAndDisplayCooldown(spellID)
         return 
     end
     
-    if debugMode then print("SpellCD: Checking spell ID:", spellID) end
+    if debugMode then 
+        print("SpellCD: Checking spell ID:", spellID)
+        print("SpellCD: In combat:", InCombatLockdown() and "YES" or "NO")
+    end
     
     local cooldownInfo = C_Spell.GetSpellCooldown(spellID)
     
     if debugMode then
+        print("SpellCD: cooldownInfo is:", cooldownInfo and "valid" or "NIL")
         if cooldownInfo then
-            print("SpellCD: Cooldown duration:", cooldownInfo.duration)
-        else
-            print("SpellCD: No cooldown info")
+            print("SpellCD: cooldownInfo.startTime:", cooldownInfo.startTime)
+            print("SpellCD: cooldownInfo.duration:", cooldownInfo.duration)
+            local remaining = (cooldownInfo.startTime + cooldownInfo.duration) - GetTime()
+            print("SpellCD: Remaining:", string.format("%.1f", remaining))
         end
     end
     
@@ -557,6 +565,8 @@ local eventFrame = CreateFrame("Frame")
 eventFrame:RegisterEvent("PLAYER_LOGIN")
 eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
 eventFrame:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED")
+eventFrame:RegisterEvent("PLAYER_REGEN_DISABLED")   -- Entering combat
+eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")    -- Leaving combat
 
 eventFrame:SetScript("OnEvent", function(self, event, ...)
     if event == "UNIT_SPELLCAST_SUCCEEDED" then
@@ -565,6 +575,24 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
             if debugMode then print("SpellCD: UNIT_SPELLCAST_SUCCEEDED - Spell ID:", spellID) end
             CheckAndDisplayCooldown(spellID)
         end
+    elseif event == "PLAYER_REGEN_DISABLED" then
+        -- Entering combat - disable all functionality for zero overhead
+        inCombat = true
+        eventFrame:UnregisterEvent("UNIT_SPELLCAST_SUCCEEDED")
+        cooldownFrame:SetScript("OnUpdate", nil)
+        if cooldownFrame:IsShown() and activeSpellID then
+            cooldownFrame:Hide()
+            activeSpellID = nil
+            cooldownEndTime = 0
+            hideTime = 0
+        end
+        if debugMode then print("SpellCD: Disabled - entered combat") end
+    elseif event == "PLAYER_REGEN_ENABLED" then
+        -- Leaving combat - re-enable functionality
+        inCombat = false
+        eventFrame:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED")
+        cooldownFrame:SetScript("OnUpdate", OnUpdateHandler)
+        if debugMode then print("SpellCD: Enabled - left combat") end
     elseif event == "PLAYER_LOGIN" then
         -- Restore saved position
         if SpellCooldownDB.position then
@@ -596,6 +624,9 @@ end)
 
 -- Hook into spell casts
 hooksecurefunc("UseAction", function(slot, target, button)
+    -- Immediate early return if in combat - absolute minimal overhead
+    if inCombat then return end
+    
     if debugMode then print("SpellCD: UseAction called, slot:", slot) end
     
     local actionType, id, subType = GetActionInfo(slot)

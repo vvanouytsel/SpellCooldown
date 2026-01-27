@@ -7,6 +7,7 @@ A simple World of Warcraft addon that displays a visual indicator when you use a
 When you press a spell or ability that's currently on cooldown, SpellCooldown shows you a large, customizable icon with the remaining cooldown time displayed right on your screen. This makes it easy to see exactly how long you need to wait before you can use that ability again.
 
 The display appears briefly when you try to use a cooldown ability, then disappears automatically, keeping your screen uncluttered.
+Due to Blizzard's restrictions added to the combat API in Midnight, this addon only works when out of combat.
 
 ## Features
 
