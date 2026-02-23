@@ -152,6 +152,13 @@ end
 
 cooldownFrame:SetScript("OnUpdate", OnUpdateHandler)
 
+-- Safe duration check to avoid taint issues
+local function IsCooldownSignificant(duration)
+    if not duration then return false end
+    local success, result = pcall(function() return duration > 1.5 end)
+    return success and result
+end
+
 -- Check if spell is on cooldown and display it
 local function CheckAndDisplayCooldown(spellID)
     if not spellID then 
@@ -169,21 +176,37 @@ local function CheckAndDisplayCooldown(spellID)
     if debugMode then
         print("SpellCD: cooldownInfo is:", cooldownInfo and "valid" or "NIL")
         if cooldownInfo then
-            print("SpellCD: cooldownInfo.startTime:", cooldownInfo.startTime)
-            print("SpellCD: cooldownInfo.duration:", cooldownInfo.duration)
-            local remaining = (cooldownInfo.startTime + cooldownInfo.duration) - GetTime()
-            print("SpellCD: Remaining:", string.format("%.1f", remaining))
+            local success, startTime = pcall(function() return cooldownInfo.startTime end)
+            local success2, duration = pcall(function() return cooldownInfo.duration end)
+            print("SpellCD: cooldownInfo.startTime:", success and startTime or "tainted")
+            print("SpellCD: cooldownInfo.duration:", success2 and duration or "tainted")
+            if success and success2 then
+                local success3, remaining = pcall(function() return (startTime + duration) - GetTime() end)
+                if success3 then
+                    print("SpellCD: Remaining:", string.format("%.1f", remaining))
+                end
+            end
         end
     end
     
-    if cooldownInfo and cooldownInfo.duration and cooldownInfo.duration > 1.5 then
+    if cooldownInfo and IsCooldownSignificant(cooldownInfo.duration) then
         local spellInfo = C_Spell.GetSpellInfo(spellID)
         
         if spellInfo and spellInfo.iconID then
             if debugMode then print("SpellCD: Displaying cooldown for:", spellInfo.name) end
             icon:SetTexture(spellInfo.iconID)
             activeSpellID = spellID
-            cooldownEndTime = cooldownInfo.startTime + cooldownInfo.duration
+            
+            -- Safely calculate cooldown end time
+            local success, endTime = pcall(function()
+                return cooldownInfo.startTime + cooldownInfo.duration
+            end)
+            if success then
+                cooldownEndTime = endTime
+            else
+                -- If tainted, we can't reliably track the cooldown
+                return
+            end
             
             -- Set hide time based on display duration setting
             local displayDuration = GetSetting("displayDuration")
