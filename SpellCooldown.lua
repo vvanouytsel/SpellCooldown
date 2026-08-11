@@ -1,5 +1,101 @@
 local addonName, addon = ...
 
+-- ==========================================================================
+-- Client flavor detection and API compatibility
+--
+-- Retail (Midnight) restricts the cooldown APIs while in combat, so there the
+-- addon shuts itself down for the duration of combat. Classic flavors such as
+-- TBC Anniversary (2.5.5) have no such restriction, so they run in combat too.
+-- Classic clients also lack most of the modern C_* namespaces, hence the
+-- feature-detected wrappers below.
+-- ==========================================================================
+local isRetail = (WOW_PROJECT_ID == nil) or (WOW_PROJECT_MAINLINE ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE)
+local restrictInCombat = isRetail
+
+-- Returns startTime, duration for a spell (nil if unavailable/tainted)
+local GetSpellCooldownCompat
+if C_Spell and C_Spell.GetSpellCooldown then
+    GetSpellCooldownCompat = function(spellID)
+        local info = C_Spell.GetSpellCooldown(spellID)
+        if not info then return nil end
+        -- Field reads can throw on forbidden tables, so read them defensively
+        local success, startTime, duration = pcall(function()
+            return info.startTime, info.duration
+        end)
+        if not success then return nil end
+        return startTime, duration
+    end
+else
+    GetSpellCooldownCompat = function(spellID)
+        local startTime, duration = GetSpellCooldown(spellID)
+        return startTime, duration
+    end
+end
+
+-- Returns name, icon for a spell
+local GetSpellDisplayInfo
+if C_Spell and C_Spell.GetSpellInfo then
+    GetSpellDisplayInfo = function(spellID)
+        local info = C_Spell.GetSpellInfo(spellID)
+        if not info then return nil end
+        return info.name, info.iconID
+    end
+else
+    GetSpellDisplayInfo = function(spellID)
+        local name, _, icon = GetSpellInfo(spellID)
+        return name, icon
+    end
+end
+
+-- Resolves a spell name (e.g. from a macro) to a spell ID
+local function GetSpellIDFromIdentifier(identifier)
+    if not identifier then return nil end
+    if C_Spell and C_Spell.GetSpellIDForSpellIdentifier then
+        return C_Spell.GetSpellIDForSpellIdentifier(identifier)
+    end
+    if GetSpellInfo then
+        -- Classic: the 7th return of GetSpellInfo is the spell ID
+        return select(7, GetSpellInfo(identifier))
+    end
+    return nil
+end
+
+local GetItemCooldownCompat = (C_Container and C_Container.GetItemCooldown) or GetItemCooldown
+local GetItemInfoCompat = (C_Item and C_Item.GetItemInfo) or GetItemInfo
+
+-- Color picker: the table-based API only exists on newer clients
+local function ShowColorPicker(r, g, b, onChanged, onCancel)
+    local info = {
+        r = r,
+        g = g,
+        b = b,
+        opacity = 1,
+        hasOpacity = false,
+        swatchFunc = function()
+            onChanged(ColorPickerFrame:GetColorRGB())
+        end,
+        -- Close over the original values instead of relying on previousValues,
+        -- whose shape differs between clients
+        cancelFunc = function()
+            onCancel(r, g, b)
+        end,
+    }
+
+    if ColorPickerFrame.SetupColorPickerAndShow then
+        ColorPickerFrame:SetupColorPickerAndShow(info)
+    elseif OpenColorPicker then
+        OpenColorPicker(info)
+    else
+        ColorPickerFrame.func = info.swatchFunc
+        ColorPickerFrame.cancelFunc = info.cancelFunc
+        ColorPickerFrame.hasOpacity = false
+        ColorPickerFrame.previousValues = { r = r, g = g, b = b }
+        ColorPickerFrame:SetColorRGB(r, g, b)
+        ColorPickerFrame:Hide()
+        ColorPickerFrame:Show()
+    end
+end
+
 -- Default settings
 local defaultSettings = {
     width = 40,
@@ -171,43 +267,25 @@ local function CheckAndDisplayCooldown(spellID)
         print("SpellCD: In combat:", InCombatLockdown() and "YES" or "NO")
     end
     
-    local cooldownInfo = C_Spell.GetSpellCooldown(spellID)
-    
+    local startTime, duration = GetSpellCooldownCompat(spellID)
+
     if debugMode then
-        print("SpellCD: cooldownInfo is:", cooldownInfo and "valid" or "NIL")
-        if cooldownInfo then
-            local success, startTime = pcall(function() return cooldownInfo.startTime end)
-            local success2, duration = pcall(function() return cooldownInfo.duration end)
-            print("SpellCD: cooldownInfo.startTime:", success and startTime or "tainted")
-            print("SpellCD: cooldownInfo.duration:", success2 and duration or "tainted")
-            if success and success2 then
-                local success3, remaining = pcall(function() return (startTime + duration) - GetTime() end)
-                if success3 then
-                    print("SpellCD: Remaining:", string.format("%.1f", remaining))
-                end
-            end
+        print("SpellCD: startTime:", startTime or "NIL")
+        print("SpellCD: duration:", duration or "NIL")
+        if startTime and duration then
+            print("SpellCD: Remaining:", string.format("%.1f", (startTime + duration) - GetTime()))
         end
     end
-    
-    if cooldownInfo and IsCooldownSignificant(cooldownInfo.duration) then
-        local spellInfo = C_Spell.GetSpellInfo(spellID)
-        
-        if spellInfo and spellInfo.iconID then
-            if debugMode then print("SpellCD: Displaying cooldown for:", spellInfo.name) end
-            icon:SetTexture(spellInfo.iconID)
+
+    if startTime and IsCooldownSignificant(duration) then
+        local spellName, spellIcon = GetSpellDisplayInfo(spellID)
+
+        if spellIcon then
+            if debugMode then print("SpellCD: Displaying cooldown for:", spellName) end
+            icon:SetTexture(spellIcon)
             activeSpellID = spellID
-            
-            -- Safely calculate cooldown end time
-            local success, endTime = pcall(function()
-                return cooldownInfo.startTime + cooldownInfo.duration
-            end)
-            if success then
-                cooldownEndTime = endTime
-            else
-                -- If tainted, we can't reliably track the cooldown
-                return
-            end
-            
+            cooldownEndTime = startTime + duration
+
             -- Set hide time based on display duration setting
             local displayDuration = GetSetting("displayDuration")
             if displayDuration > 0 then
@@ -430,33 +508,22 @@ colorInner:SetPoint("TOPLEFT", 1, -1)
 colorInner:SetPoint("BOTTOMRIGHT", -1, 1)
 colorInner:SetColorTexture(GetSetting("textColorR"), GetSetting("textColorG"), GetSetting("textColorB"))
 
+local function ApplyTextColor(r, g, b)
+    SetSetting("textColorR", r)
+    SetSetting("textColorG", g)
+    SetSetting("textColorB", b)
+    UpdateCachedColors()
+    previewText:SetTextColor(r, g, b)
+    colorTexture:SetColorTexture(r, g, b)
+    colorInner:SetColorTexture(r, g, b)
+end
+
 colorButton:SetScript("OnClick", function()
-    local r, g, b = GetSetting("textColorR"), GetSetting("textColorG"), GetSetting("textColorB")
-    ColorPickerFrame:SetupColorPickerAndShow({
-        r = r,
-        g = g,
-        b = b,
-        opacity = 1,
-        swatchFunc = function()
-            local newR, newG, newB = ColorPickerFrame:GetColorRGB()
-            SetSetting("textColorR", newR)
-            SetSetting("textColorG", newG)
-            SetSetting("textColorB", newB)
-            UpdateCachedColors()
-            previewText:SetTextColor(newR, newG, newB)
-            colorTexture:SetColorTexture(newR, newG, newB)
-            colorInner:SetColorTexture(newR, newG, newB)
-        end,
-        cancelFunc = function()
-            SetSetting("textColorR", r)
-            SetSetting("textColorG", g)
-            SetSetting("textColorB", b)
-            UpdateCachedColors()
-            previewText:SetTextColor(r, g, b)
-            colorTexture:SetColorTexture(r, g, b)
-            colorInner:SetColorTexture(r, g, b)
-        end,
-    })
+    ShowColorPicker(
+        GetSetting("textColorR"), GetSetting("textColorG"), GetSetting("textColorB"),
+        ApplyTextColor,
+        ApplyTextColor
+    )
 end)
 
 -- Border enabled checkbox
@@ -492,33 +559,22 @@ borderColorInner:SetPoint("TOPLEFT", 1, -1)
 borderColorInner:SetPoint("BOTTOMRIGHT", -1, 1)
 borderColorInner:SetColorTexture(GetSetting("borderColorR"), GetSetting("borderColorG"), GetSetting("borderColorB"))
 
+local function ApplyBorderColor(r, g, b)
+    SetSetting("borderColorR", r)
+    SetSetting("borderColorG", g)
+    SetSetting("borderColorB", b)
+    borderColorTexture:SetColorTexture(r, g, b)
+    borderColorInner:SetColorTexture(r, g, b)
+    UpdateBorder()
+    UpdatePreviewBorder()
+end
+
 borderColorButton:SetScript("OnClick", function()
-    local r, g, b = GetSetting("borderColorR"), GetSetting("borderColorG"), GetSetting("borderColorB")
-    ColorPickerFrame:SetupColorPickerAndShow({
-        r = r,
-        g = g,
-        b = b,
-        opacity = 1,
-        swatchFunc = function()
-            local newR, newG, newB = ColorPickerFrame:GetColorRGB()
-            SetSetting("borderColorR", newR)
-            SetSetting("borderColorG", newG)
-            SetSetting("borderColorB", newB)
-            borderColorTexture:SetColorTexture(newR, newG, newB)
-            borderColorInner:SetColorTexture(newR, newG, newB)
-            UpdateBorder()
-            UpdatePreviewBorder()
-        end,
-        cancelFunc = function()
-            SetSetting("borderColorR", r)
-            SetSetting("borderColorG", g)
-            SetSetting("borderColorB", b)
-            borderColorTexture:SetColorTexture(r, g, b)
-            borderColorInner:SetColorTexture(r, g, b)
-            UpdateBorder()
-            UpdatePreviewBorder()
-        end,
-    })
+    ShowColorPicker(
+        GetSetting("borderColorR"), GetSetting("borderColorG"), GetSetting("borderColorB"),
+        ApplyBorderColor,
+        ApplyBorderColor
+    )
 end)
 
 -- Border size slider
@@ -576,11 +632,28 @@ debugDesc:SetPoint("TOPLEFT", debugCheckbox, "BOTTOMLEFT", 20, -5)
 debugDesc:SetText("Prints detailed spell detection info to chat.")
 
 -- Register config
+local settingsCategory
 if Settings and Settings.RegisterCanvasLayoutCategory then
     local category, layout = Settings.RegisterCanvasLayoutCategory(configFrame, "SpellCooldown")
     Settings.RegisterAddOnCategory(category)
-else
+    settingsCategory = category
+elseif InterfaceOptions_AddCategory then
     InterfaceOptions_AddCategory(configFrame)
+end
+
+-- Slash command: AddOn options live in different places per client build
+SLASH_SPELLCOOLDOWN1 = "/spellcooldown"
+SLASH_SPELLCOOLDOWN2 = "/spellcd"
+SlashCmdList["SPELLCOOLDOWN"] = function()
+    if settingsCategory and Settings and Settings.OpenToCategory then
+        Settings.OpenToCategory(settingsCategory:GetID())
+    elseif InterfaceOptionsFrame_OpenToCategory then
+        -- Called twice to work around a long-standing Blizzard bug
+        InterfaceOptionsFrame_OpenToCategory(configFrame)
+        InterfaceOptionsFrame_OpenToCategory(configFrame)
+    else
+        print("|cFF00FF00SpellCooldown:|r Could not open the options panel on this client.")
+    end
 end
 
 -- Event handler
@@ -588,8 +661,12 @@ local eventFrame = CreateFrame("Frame")
 eventFrame:RegisterEvent("PLAYER_LOGIN")
 eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
 eventFrame:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED")
-eventFrame:RegisterEvent("PLAYER_REGEN_DISABLED")   -- Entering combat
-eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")    -- Leaving combat
+
+-- Combat gating is only needed where the cooldown APIs are restricted in combat
+if restrictInCombat then
+    eventFrame:RegisterEvent("PLAYER_REGEN_DISABLED")   -- Entering combat
+    eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")    -- Leaving combat
+end
 
 eventFrame:SetScript("OnEvent", function(self, event, ...)
     if event == "UNIT_SPELLCAST_SUCCEEDED" then
@@ -636,6 +713,9 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
         UpdateBorder()
         
         print("|cFF00FF00SpellCooldown|r addon loaded! Configure in Game Menu > Options > AddOns > SpellCooldown")
+        if restrictInCombat then
+            print("|cFF00FF00SpellCooldown:|r Disabled while in combat due to Blizzard's combat API restrictions.")
+        end
     elseif event == "PLAYER_ENTERING_WORLD" then
         -- Restore size and font on zone change
         cooldownFrame:SetSize(GetSetting("width"), GetSetting("height"))
@@ -648,8 +728,8 @@ end)
 -- Hook into spell casts
 hooksecurefunc("UseAction", function(slot, target, button)
     -- Immediate early return if in combat - absolute minimal overhead
-    if inCombat then return end
-    
+    if restrictInCombat and inCombat then return end
+
     if debugMode then print("SpellCD: UseAction called, slot:", slot) end
     
     local actionType, id, subType = GetActionInfo(slot)
@@ -662,7 +742,7 @@ hooksecurefunc("UseAction", function(slot, target, button)
         -- First try to get the spell from the macro
         local macroSpell = GetMacroSpell(id)
         if macroSpell then
-            local spellID = C_Spell.GetSpellIDForSpellIdentifier(macroSpell)
+            local spellID = GetSpellIDFromIdentifier(macroSpell)
             if spellID then
                 if debugMode then print("SpellCD: Macro contains spell ID:", spellID) end
                 CheckAndDisplayCooldown(spellID)
@@ -673,10 +753,10 @@ hooksecurefunc("UseAction", function(slot, target, button)
             if debugMode then print("SpellCD: Trying id as spell ID:", id) end
             CheckAndDisplayCooldown(id)
         end
-    elseif actionType == "item" then
-        local start, duration = C_Container.GetItemCooldown(id)
-        if duration and duration > 1.5 then
-            local itemName, _, _, _, _, _, _, _, _, itemIcon = C_Item.GetItemInfo(id)
+    elseif actionType == "item" and GetItemCooldownCompat and GetItemInfoCompat then
+        local start, duration = GetItemCooldownCompat(id)
+        if start and duration and duration > 1.5 then
+            local itemName, _, _, _, _, _, _, _, _, itemIcon = GetItemInfoCompat(id)
             if itemIcon then
                 if debugMode then print("SpellCD: Item on cooldown:", itemName) end
                 icon:SetTexture(itemIcon)

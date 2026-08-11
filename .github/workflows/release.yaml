@@ -33,13 +33,16 @@ jobs:
       - name: Update TOC version
         run: |
           VERSION=${{ steps.get_version.outputs.version }}
-          sed -i "s/^## Version:.*/## Version: ${VERSION}/" SpellCooldown.toc
-          cat SpellCooldown.toc
-      
+          for toc in SpellCooldown*.toc; do
+            sed -i "s/^## Version:.*/## Version: ${VERSION}/" "$toc"
+            echo "--- $toc ---"
+            cat "$toc"
+          done
+
       - name: Create addon package
         run: |
           mkdir -p release/SpellCooldown
-          cp -r SpellCooldown.lua SpellCooldown.toc LICENSE README.md release/SpellCooldown/
+          cp -r SpellCooldown.lua SpellCooldown*.toc LICENSE README.md release/SpellCooldown/
           cd release
           zip -r SpellCooldown-${{ steps.get_version.outputs.version }}.zip SpellCooldown/
           cd ..
