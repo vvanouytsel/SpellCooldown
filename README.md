@@ -12,10 +12,27 @@ The display appears briefly when you try to use a cooldown ability, then disappe
 
 | Client | Combat support |
 | --- | --- |
-| Retail (Midnight) | Out of combat only |
+| Retail (Midnight 12.0.5+) | In and out of combat |
 | TBC Classic Anniversary (2.5.5) | In and out of combat |
 
-Due to Blizzard's restrictions added to the combat API in Midnight, the addon disables itself in combat on Retail. Classic clients have no such restriction, so on TBC Anniversary the cooldown display works in combat as well.
+### A note on Midnight's combat restrictions
+
+Midnight put the player's own cooldown numbers behind "secret values": an addon may hold them but may not do arithmetic or comparisons on them, which is why earlier versions of this addon switched themselves off in combat.
+
+Blizzard's rule is that addons may still *display* combat information, they just may not compute with it — and displaying is all this addon ever wanted to do. On Retail the countdown is rendered by a `Cooldown` widget: the addon hands it an opaque duration object and the widget draws the number itself. Nothing secret is ever read, compared, or formatted locally, which is what makes it legal in combat. The widget's swipe, edge and bling are switched off, so all it contributes is the text.
+
+This same path is used in and out of combat, so the display looks and ticks identically either way. Classic clients, which have no duration APIs and no restrictions, keep the original locally-computed countdown.
+
+The decision about *whether* a spell is on cooldown uses only the fields Blizzard flags as never-secret, so it stays legal either way.
+
+### Requires "Show Numbers for Cooldowns"
+
+Blizzard gates *all* cooldown countdown text behind the `countdownForCooldowns` CVar — the **Show Numbers for Cooldowns** checkbox under Options → ActionBars. An addon can suppress the numbers on its own frame but cannot force them on, so with that setting off the timer cannot be drawn at all in combat. The addon detects this and says so at login, and out of combat it falls back to formatting the readable values itself.
+
+Other consequences worth knowing:
+
+- The client owns the formatting on Retail, so the countdown matches your action bars: whole seconds, switching to minutes above a minute. **Show Decimal Seconds** is applied through the widget's millisecond threshold, and font size and colour through a Font object handed to the widget.
+- Item cooldowns are read directly and then wrapped in a duration object so they render through the same path. Items are not part of the automation surface Blizzard restricts, so this normally works; if that ever changes the addon skips the item rather than erroring.
 
 ## Features
 
