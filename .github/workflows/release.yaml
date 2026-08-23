@@ -48,6 +48,49 @@ jobs:
           cd ..
           ls -lh release/
       
+      - name: Resolve CurseForge game versions
+        id: game_versions
+        env:
+          CF_TOKEN: ${{ secrets.CURSEFORGE_API_KEY }}
+        run: |
+          set -euo pipefail
+
+          # Turn every "## Interface: 120100, 120007" entry into a patch name (12.1.0, 12.0.7)
+          WANTED=$(grep -h -i '^## Interface:' SpellCooldown*.toc \
+            | sed 's/^## Interface:[[:space:]]*//' \
+            | tr ',' '\n' \
+            | tr -d ' \t\r' \
+            | grep -E '^[0-9]{5,6}$' \
+            | awk '{printf "%d.%d.%d\n", int($1/10000), int($1/100)%100, int($1%100)}' \
+            | sort -u)
+          echo "Flavors declared by the TOC files:"
+          echo "$WANTED"
+
+          curl -sSf -H "X-Api-Token: ${CF_TOKEN}" \
+            "https://wow.curseforge.com/api/game/versions" -o versions.json
+
+          IDS=""
+          MISSING=""
+          for v in $WANTED; do
+            found=$(jq -r --arg v "$v" '[.[] | select(.name == $v) | .id | tostring] | join(",")' versions.json)
+            if [ -n "$found" ]; then
+              IDS="${IDS:+$IDS,}$found"
+              echo "  $v -> $found"
+            else
+              MISSING="${MISSING:+$MISSING }$v"
+            fi
+          done
+
+          if [ -n "$MISSING" ]; then
+            echo "::warning::CurseForge does not list these game versions yet, they will not be tagged: $MISSING"
+          fi
+          if [ -z "$IDS" ]; then
+            echo "::error::No TOC interface version could be matched to a CurseForge game version. Refusing to upload an untagged file."
+            exit 1
+          fi
+
+          echo "ids=${IDS}" >> $GITHUB_OUTPUT
+
       - name: Upload to CurseForge
         uses: itsmeow/curseforge-upload@v3
         with:
@@ -55,6 +98,8 @@ jobs:
           project_id: ${{ secrets.CURSEFORGE_PROJECT_ID }}
           game_endpoint: wow
           file_path: release/SpellCooldown-${{ steps.get_version.outputs.version }}.zip
+          display_name: SpellCooldown ${{ steps.get_version.outputs.version }}
+          game_versions: ${{ steps.game_versions.outputs.ids }}
           changelog: ${{ github.event.release.body || 'New release' }}
           changelog_type: markdown
           release_type: release
