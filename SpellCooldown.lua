@@ -22,8 +22,13 @@ local addonName, addon = ...
 --
 -- Classic flavors such as TBC Anniversary (2.5.5) lack most of the modern C_*
 -- namespaces, hence the feature-detected wrappers below.
+--
+-- WoW Forever (interface 16001, project "Camelot") runs on the Mainline API and
+-- has the same secret values, so it takes the Retail path. It reports its own
+-- WOW_PROJECT_ID rather than WOW_PROJECT_MAINLINE, which is why the Retail
+-- check below looks for the restriction API instead of the project ID.
 -- ==========================================================================
-local isRetail = (WOW_PROJECT_ID == nil) or (WOW_PROJECT_MAINLINE ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE)
+local hasCombatRestrictions = issecretvalue ~= nil
 
 -- Anything at or below this is the global cooldown rather than a real cooldown
 local GCD_THRESHOLD = 1.5
@@ -938,9 +943,9 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
         UpdateBorder()
         
         print("|cFF00FF00SpellCooldown|r addon loaded! Configure in Game Menu > Options > AddOns > SpellCooldown")
-        if isRetail and not cooldownWidget then
+        if hasCombatRestrictions and not cooldownWidget then
             print("|cFF00FF00SpellCooldown:|r This client cannot render restricted cooldowns, so the display is unavailable while Blizzard's combat restrictions are active.")
-        elseif isRetail and not CanDrawCountdown() then
+        elseif hasCombatRestrictions and not CanDrawCountdown() then
             print("|cFF00FF00SpellCooldown:|r Turn on \"Show Numbers for Cooldowns\" in Options > ActionBars. Blizzard gates all cooldown countdown text behind it, so without it the timer cannot be drawn in combat.")
         end
     elseif event == "PLAYER_ENTERING_WORLD" then

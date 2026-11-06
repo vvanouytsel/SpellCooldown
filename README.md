@@ -13,7 +13,10 @@ The display appears briefly when you try to use a cooldown ability, then disappe
 | Client | Combat support |
 | --- | --- |
 | Retail (Midnight 12.0.5+) | In and out of combat |
+| WoW Forever (1.60.1) | In and out of combat |
 | TBC Classic Anniversary (2.5.5) | In and out of combat |
+
+WoW Forever is built on the Retail game code, combat restrictions included, so it uses the same display path as Retail described below.
 
 ### A note on Midnight's combat restrictions
 
